@@ -8,18 +8,156 @@ output:
 
 ## Loading and preprocessing the data
 
+This assignment makes use of data from a personal activity monitoring
+device. This device collects data at 5 minute intervals through out the
+day. The data consists of two months of data from an anonymous
+individual collected during the months of October and November, 2012
+and include the number of steps taken in 5 minute intervals each day.
 
+* Dataset: [Activity monitoring data](activity.zip) [52K]
+
+The variables included in this dataset are:
+
+* **steps**: Number of steps taking in a 5-minute interval (missing
+    values are coded as `NA`)
+
+* **date**: The date on which the measurement was taken in YYYY-MM-DD
+    format
+
+* **interval**: Identifier for the 5-minute interval in which
+    measurement was taken
+
+We read **dataset** from zipped csv file and create additional variable
+
+* **time**: Time of beginning of the 5-minute interval.
+
+```{r}
+dataset <- read.csv(unz("activity.zip", "activity.csv"), stringsAsFactors=FALSE)
+dataset$time <- as.POSIXct(strptime(paste(dataset$date,
+                                          dataset$interval %/% 100,
+                                          dataset$interval %% 100),
+                                    "%Y-%m-%d %H %M"))
+dataset$date <- as.Date(dataset$date, "%Y-%m-%d")
+```
+
+We are using the fact that `interval` variable is just an integer converted
+from string with `%H%M` format.
 
 ## What is mean total number of steps taken per day?
 
+We will use dplyr package to manipulate data.
 
+```{r}
+library(dplyr, warn.conflicts = FALSE, quietly = TRUE)
+```
+
+First, convert dataset into datatable **dt** and produce new datatable by
+grouping by date and summarizing by steps.
+
+**by_day** contains 2 variables:
+
+* **date**: The date on which the measurement was taken
+
+* **total_steps**: Total number of steps for this day
+
+```{r}
+dt <- tbl_df(dataset)
+by_day <- 
+    dt %>%
+    group_by(date) %>%
+    summarize(total_steps = sum(steps, na.rm=TRUE))
+```
+
+```{r results="hide"}
+max(by_day$total_steps)
+```
+
+Maximum amount of steps by day is `r max(by_day$total_steps)`, so we can create
+a histogram with 24 bins.
+
+```{r}
+xbreaks <- seq(0, 24000, by = 1000)
+hist(by_day$total_steps, breaks = xbreaks,
+     xlab = "Total number of steps")
+```
+
+Compute mean total number of steps taken per day.
+
+```{r}
+mean(by_day$total_steps)
+```
+
+Compute median total number of steps taken per day.
+
+```{r}
+median(by_day$total_steps)
+```
 
 ## What is the average daily activity pattern?
 
+```{r}
+by_time <-
+    dt %>%
+    group_by(interval) %>%
+    summarize(avg_steps = mean(steps, na.rm=TRUE)) %>%
+    mutate(hour = (interval %/% 100) + (interval %% 100) / 60)
 
+plot(by_time$hour, by_time$avg_steps, type="l", xaxt="n")
+axis(1, at=seq(0, 24, by = 2))
+
+by_time %>%
+    filter(avg_steps == max(avg_steps)) %>%
+    print
+```
 
 ## Imputing missing values
 
+```{r}
+sum(is.na(dt$steps))
+```
 
+```{r}
+dt_full <- dt
+for(i in 1:length(dt$steps)) {
+    if (is.na(dt$steps[i])) {
+        interval_num <- (dt$interval[i] %/% 100) * 12 +
+            (dt$interval[i] %% 100) / 5 + 1
+        dt_full$steps[i] <- by_time$avg_steps[interval_num]
+    }    
+}
+```
+
+```{r}
+by_day_full <- 
+    dt_full %>%
+    group_by(date) %>%
+    summarize(total_steps = sum(steps))
+
+hist(by_day_full$total_steps, xbreaks)
+mean(by_day_full$total_steps)
+median(by_day_full$total_steps)
+```
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+```{r}
+library(lubridate)
+dt_full$week_day <- factor(ifelse(wday(dt_full$date) %in% c(1, 7), "weekend", "weekday"))
+```
+
+```{r}
+by_weekdays <-
+    dt_full %>%
+    group_by(interval, week_day) %>%
+    summarize(avg_steps = mean(steps))
+
+library(ggplot2)
+ggplot(by_weekdays, aes(interval, avg_steps)) +
+    facet_wrap(~ week_day, nrow=2) + geom_line() +
+    xlab("Interval") + ylab("Average number of steps")
+
+ggplot(by_weekdays, aes((interval %/% 100) + (interval %% 100) / 60,
+                        avg_steps)) + 
+    facet_wrap(~ week_day, nrow=2) + geom_line() +
+    xlab("Hour") + ylab("Average number of steps per 5-min interval")
+```
